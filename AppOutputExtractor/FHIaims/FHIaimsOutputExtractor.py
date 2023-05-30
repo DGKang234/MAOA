@@ -29,7 +29,6 @@ class extractor(BaseExtractor):
         self.shell = shellcommand()
 
     def set_output_filepath(self,path):
-
         if os.path.exists(path):
             self.output_filepath = path
         else:
@@ -37,7 +36,6 @@ class extractor(BaseExtractor):
             print('in {} method "set_output_filepath()", cannot find the file at: "{}" '.format(__file__,path))
 
     def set_input_geometry_filepath(self,path):
-    
         if os.path.exists(path):
             self.input_geometry_filepath = path
             self.input_geometry = fmol(path)
@@ -46,7 +44,6 @@ class extractor(BaseExtractor):
             print('in {} method "set_input_geometry_filepath()", cannot find the file at: "{}" '.format(__file__,path))
 
     def set_output_geometry_filepath(self,path):
-
         if os.path.exists(path):
             self.output_geometry_filepath = path
             self.output_geometry = fmol(path)
@@ -82,7 +79,6 @@ class extractor(BaseExtractor):
     '''
 
     def check_calculation_success(self):
-
         self.shell.set_tarfile(self.output_filepath)
         cmd = self.shell.grep(self.patterns['SUCCESS']['pattern'])
         shell_res = self.shell.execute(cmd)
@@ -97,7 +93,10 @@ class extractor(BaseExtractor):
     def check_calculation_runtime(self):
         # wall clock time
         self.shell.set_tarfile(self.output_filepath)
-        cmd = self.shell.pipe(self.shell.grep(self.patterns['APP_RUNTIME']['pattern']),self.shell.awk(self.patterns['APP_RUNTIME']['wtime_token']))
+        cmd = self.shell.pipe(\
+        self.shell.grep(self.patterns['APP_RUNTIME']['pattern'])\
+        ,self.shell.awk(self.patterns['APP_RUNTIME']['wtime_token'])
+        )
         target = self.shell.execute(cmd)    #!!!
 
         try:
@@ -110,7 +109,10 @@ class extractor(BaseExtractor):
     def check_parallel_task(self):
         # used cpus
         self.shell.set_tarfile(self.output_filepath)
-        cmd = self.shell.pipe(self.shell.grep(self.patterns['APP_RESOURCE_USED']['pattern']),self.shell.awk(self.patterns['APP_RESOURCE_USED']['token']))
+        cmd = self.shell.pipe(\
+        self.shell.grep(self.patterns['APP_RESOURCE_USED']['pattern'])\
+        ,self.shell.awk(self.patterns['APP_RESOURCE_USED']['token'])
+        )
         target = self.shell.execute(cmd)    #!!!
 
         try:
@@ -131,7 +133,9 @@ class extractor(BaseExtractor):
             self.scf_converged_blocks[-1]-> final SCF converged blocks
         '''
         pattern = self.patterns['BEGIN_SCF']['pattern'].replace("'","")
-        self.total_lnumber, self.scf_block_lines = ParsingSupport.find_pattern_with_last_word(self.output_filepath,pattern) # GET LINE NUMBERS OF SCF (CONVERGED) BLOCKS
+        self.total_lnumber, self.scf_block_lines = \
+        ParsingSupport.find_pattern_with_last_word(self.output_filepath,pattern) \
+        # GET LINE NUMBERS OF SCF (CONVERGED) BLOCKS
     
         self.scf_converged_blocklines = []          #!!!
         self.scf_converged_blocks = []              #!!!
@@ -155,12 +159,27 @@ class extractor(BaseExtractor):
 
         # SAVE THE BLOCKS ... 'self.scf_converged_blocks' -> python list
         for item in self.scf_converged_blocklines:
-            self.scf_converged_blocks.append(ParsingSupport.get_lines(self.output_filepath,item[0],item[1]))
+            self.scf_converged_blocks.append(\
+            ParsingSupport.get_lines(self.output_filepath,item[0],item[1]))
         #for numi, i in enumerate(self.scf_converged_blocks):
         #    for numj, j in enumerate(i):
         #        with open(f'{str(numi)}.txt', 'a') as f:
         #            f.write(j)
         return self.scf_converged_blocks
+
+
+    @property
+    def get_species(self):
+        marker = '#     global species definitions'
+        self.species = []
+        with open(self.output_filepath, 'r') as f:
+            lines = f.readlines()
+            for numi, i in enumerate(lines):
+                if marker in i:
+                    atom = lines[numi-1].split()[1] 
+                    self.species.append(atom)
+        return self.species
+
 
     @property
     def get_no_atoms(self) -> int:
@@ -182,12 +201,14 @@ class extractor(BaseExtractor):
     '''
         AppOutput Collation Methods
     '''
+
     @property
-    def get_geo(self) -> np.ndarray:
+    def get_geometries(self) -> np.ndarray:
         marker = 'Updated atomic structure:'
         marker_final_sp = 'Final atomic structure:'
         start_index = None
-        self.geo = np.zeros((self.get_number_of_scf_blocks, self.get_no_atoms, 3))
+        self.geo = np.zeros((self.get_number_of_scf_blocks, self.get_no_atoms, 3))  # Assuming 4 numerical data points per atom
+        self.atom_names = np.empty((self.get_number_of_scf_blocks, self.get_no_atoms), dtype=object)  # New numpy array to store atom names
         cnt = 0
         for numi, i in enumerate(self.set_scf_blocks):
             for numj, j in enumerate(i):
@@ -197,19 +218,22 @@ class extractor(BaseExtractor):
                     end_index = numj - 3
                     atomic_structure = i[start_index: end_index]
                     for numk, k in enumerate(atomic_structure):
-                        numbers = [float(x) for x in k.split()[1:4]]
-                        self.geo[cnt, numk] = numbers
+                        numbers = [x for x in k.split()]
+                        self.atom_names[cnt, numk] = numbers[-1]  # Store atom name
+                        self.geo[cnt, numk] = list(map(float, numbers[1:4]))  # Convert the rest to float and store in self.geo
                     start_index = None
                     cnt += 1
-
                 elif marker_final_sp in j:
                     atomic_structure = i[numj + 2: numj + self.get_no_atoms+2]
                     for numk, k in enumerate(atomic_structure):
-                        numbers = [float(x) for x in k.split()[1:4]]
-                        self.geo[cnt, numk] = numbers
+                        numbers = k.strip().split()
+                        self.atom_names[cnt, numk] = numbers[-1]  # Store atom name
+                        self.geo[cnt, numk] = list(map(float, numbers[1:4]))  # Convert the rest to float and store in self.geo
                     start_index = None
                     cnt += 1
-        return self.geo
+        return self.geo, self.atom_names[0]  # Return both arrays
+
+
 
     @property 
     def get_forces(self) -> np.ndarray:
@@ -225,7 +249,7 @@ class extractor(BaseExtractor):
                     end_index = numj
                     force = i[start_index:end_index]
                     for numk, k in enumerate(force):
-                        numbers = [float(x) for x in k.split()[-3:]]
+                        numbers = list(map(float, k.strip().split()[-3:]))
                         self.forces[cnt, numk] = numbers
                     start_index = None
                     cnt += 1
@@ -236,23 +260,27 @@ class extractor(BaseExtractor):
     def get_vib_eigvec(self) -> np.ndarray:
         check_vib = [x for x in os.listdir('./') if 'vibration' in x][0]
         if len(check_vib) == 0:
-            raise ValueError("Cannot find 'vibration' directory")
-        else: pass
-
-        vib_xyz = [os.path.join(check_vib[0], x) for x in os.listdir('./') if '.xyz' in x][0]
+            raise FileNotFoundError("Cannot find 'vibration' directory")
+    
+        vib_xyz = [os.path.join(check_vib, x) for x in os.listdir(check_vib) if '_' and '.xyz' in x][0]
         with open(vib_xyz, 'r') as f:
             lines = f.readlines()
+    
         self.eigvec = np.zeros((self.get_no_atoms*3, self.get_no_atoms, 3))
+        start_index = None
+        block_counter = -1
         for numi, i in enumerate(lines):
             if 'frequency' in i:
-                start_index = numi+1
-                end_index = numi+1 + self.get_no_atoms
-                contents = i[start_index: end_index]
-                for numj, j in enumerate(contetns):
-                    numbers = [float(x) for x in j.split()[4:]]
-                    self.eigvec[numj] = numbers
-        return self.eigvec                    
-
+                start_index = numi + 1
+                block_counter += 1
+            elif start_index is not None and (i.strip().split()[0] in ['Al', 'F']):
+                data = list(map(float, i.strip().split()[-3:]))  # convert last three elements to float
+                atom_index = numi - start_index
+                self.eigvec[block_counter, atom_index, :] = data
+            elif i.strip() == str(self.get_no_atoms):
+                start_index = None
+    
+        return self.eigvec
 
 
     def get_total_energy(self,block=-1):
