@@ -1,5 +1,5 @@
 #
-
+import time
 from AppOutputExtractor.OutputExtractor import BaseExtractor
 from AppOutputExtractor.FHIaims.FHIaimsMolecule import molecule as fmol
 from AppOutputExtractor.FHIaims.FHIaimsMolecule import calculate_rmsd_molecules
@@ -170,15 +170,9 @@ class extractor(BaseExtractor):
 
     @property
     def get_species(self):
-        marker = '#     global species definitions'
-        self.species = []
-        with open(self.output_filepath, 'r') as f:
-            lines = f.readlines()
-            for numi, i in enumerate(lines):
-                if marker in i:
-                    atom = lines[numi-1].split()[1] 
-                    self.species.append(atom)
-        return self.species
+        get_species =  list(set(tuple(x) for x in self.get_atom_order.tolist()))
+        get_species = sorted(get_species)
+        return get_species
 
 
     @property
@@ -202,66 +196,98 @@ class extractor(BaseExtractor):
         AppOutput Collation Methods
     '''
 
+    def get_total_energy(self, block=-1):
+        pattern_str = self.patterns['SCF_ENERGY']['pattern'].replace("'","")
+        token = int(self.patterns['SCF_ENERGY']['token']) - 1
+        pattern = re.compile(pattern_str)
+        for i in self.set_scf_blocks[block]:
+            matching = pattern.search(i)
+            if matching:
+                target = float(i.split()[ token ])
+                break
+        return target
+
+
     @property
-    def get_geometries(self) -> np.ndarray:
-        marker = 'Updated atomic structure:'
-        marker_final_sp = 'Final atomic structure:'
+    def get_atom_order(self, block=-1) -> np.ndarray:
+        pattern_str = self.patterns['SCF_GEOMETRY_END']['pattern'].replace("'", "")
+        pattern = re.compile(pattern_str)
+
         start_index = None
-        self.geo = np.zeros((self.get_number_of_scf_blocks, self.get_no_atoms, 3))  # Assuming 4 numerical data points per atom
-        self.atom_names = np.empty((self.get_number_of_scf_blocks, self.get_no_atoms), dtype=object)  # New numpy array to store atom names
-        cnt = 0
-        for numi, i in enumerate(self.set_scf_blocks):
-            for numj, j in enumerate(i):
-                if marker in j:
-                    start_index = numj + 2
-                elif start_index is not None and j.strip() == '':
-                    end_index = numj - 3
-                    atomic_structure = i[start_index: end_index]
-                    for numk, k in enumerate(atomic_structure):
-                        numbers = [x for x in k.split()]
-                        self.atom_names[cnt, numk] = numbers[-1]  # Store atom name
-                        self.geo[cnt, numk] = list(map(float, numbers[1:4]))  # Convert the rest to float and store in self.geo
-                    start_index = None
-                    cnt += 1
-                elif marker_final_sp in j:
-                    atomic_structure = i[numj + 2: numj + self.get_no_atoms+2]
-                    for numk, k in enumerate(atomic_structure):
-                        numbers = k.strip().split()
-                        self.atom_names[cnt, numk] = numbers[-1]  # Store atom name
-                        self.geo[cnt, numk] = list(map(float, numbers[1:4]))  # Convert the rest to float and store in self.geo
-                    start_index = None
-                    cnt += 1
-        return self.geo, self.atom_names[0]  # Return both arrays
+        self.match_atom = np.empty((self.get_no_atoms), dtype=object)
+        for numj, j in enumerate(self.set_scf_blocks[block]):
+            matching = pattern.search(j)
+            if matching:
+                start_index = numj + 2
+            elif start_index is not None and j.strip() == '':
+                end_index = numj - 1
+                atomic_structure = self.scf_converged_blocks[block][start_index: end_index]
+                for numk, k in enumerate(atomic_structure):
+                    numbers = [x for x in k.split()]
+                    self.match_atom[numk] = numbers[-1]
+                break
+        self.match_atom = np.reshape(self.match_atom, (self.get_no_atoms, 1))
+        return self.match_atom        
 
 
+    def get_geometries(self, block=-1) -> np.ndarray:
+        pattern_str = self.patterns['SCF_GEOMETRY_BEGIN']['pattern'].replace("'", "")
+        pattern = re.compile(pattern_str)
 
-    @property 
-    def get_forces(self) -> np.ndarray:
-        marker = 'Total atomic forces (unitary forces cleaned) [eV/Ang]'
+        if block == -1 or block == len(self.scf_converged_blocks)-1:
+            pattern_str = self.patterns['SCF_GEOMETRY_END']['pattern'].replace("'", "")
+            pattern = re.compile(pattern_str)
+
         start_index = None
-        self.forces = np.zeros((self.get_number_of_scf_blocks, self.get_no_atoms, 3))
+        self.geo = np.zeros((self.get_no_atoms, 3))
+        for numj, j in enumerate(self.scf_converged_blocks[block]):
+            matching = pattern.search(j)
+            if matching: 
+                start_index = numj + 2
+                #elif start_index is not None and j.strip() == '':
+                end_index = numj + self.get_no_atoms + 2
+                atomic_structure = self.scf_converged_blocks[block][start_index: end_index]
+                for numk, k in enumerate(atomic_structure):
+                    numbers = [x for x in k.split()]
+                    self.geo[numk] = list(map(float, numbers[1:4]))  # Convert the rest to float and store in self.geo
+
+                start_index = None
+        return self.geo
+
+
+    def get_forces(self, block=-1) -> np.ndarray:
+        start = time.process_time()
+        pattern_str = self.patterns['SCF_FORCE']['pattern'].replace("'", "")
+        pattern = re.compile(pattern_str)
+        start_index = None
+        self.forces = np.zeros((self.get_no_atoms, 3))
         cnt = 0
-        for numi, i in enumerate(self.set_scf_blocks):
-            for numj, j in enumerate(i):
-                if marker in j:
-                    start_index = numj + 1
-                elif start_index is not None and j.strip() == '':
-                    end_index = numj
-                    force = i[start_index:end_index]
-                    for numk, k in enumerate(force):
-                        numbers = list(map(float, k.strip().split()[-3:]))
-                        self.forces[cnt, numk] = numbers
-                    start_index = None
-                    cnt += 1
+        for numj, j in enumerate(self.scf_converged_blocks[block]):
+            matching = pattern.search(j)
+            if matching: 
+                start_index = numj + 1
+            elif start_index is not None and j.strip() == '':
+                end_index = numj
+                force = self.scf_converged_blocks[block][start_index:end_index]
+                for numk, k in enumerate(force):
+                    numbers = list(map(float, k.strip().split()[-3:]))
+                    self.forces[numk] = numbers
+                start_index = None
+                cnt += 1
         return self.forces 
 
 
     @property
     def get_vib_eigvec(self) -> np.ndarray:
-        check_vib = [x for x in os.listdir('./') if 'vibration' in x][0]
+        '''
+        Read whole file contents (not necessary to read in blocks as we need all eigenvector of vibrational mode
+        '''
+        check_vib = [x for x in os.listdir('./') if 'vibration' in x]
         if len(check_vib) == 0:
             raise FileNotFoundError("Cannot find 'vibration' directory")
-    
+        else:
+            check_vib = [x for x in os.listdir('./') if 'vibration' in x][0]
+
         vib_xyz = [os.path.join(check_vib, x) for x in os.listdir(check_vib) if '_' and '.xyz' in x][0]
         with open(vib_xyz, 'r') as f:
             lines = f.readlines()
@@ -279,21 +305,8 @@ class extractor(BaseExtractor):
                 self.eigvec[block_counter, atom_index, :] = data
             elif i.strip() == str(self.get_no_atoms):
                 start_index = None
-    
         return self.eigvec
 
-
-    def get_total_energy(self,block=-1):
-        pattern_str = self.patterns['SCF_ENERGY']['pattern'].replace("'","")
-        token = int(self.patterns['SCF_ENERGY']['token']) - 1
-        pattern = re.compile(pattern_str)
-    
-        for line in self.scf_converged_blocks[block]:
-            matching = pattern.search(line)
-            if matching:
-                target = float(line.split()[ token ])
-                break
-        return target
 
     def get_dipole(self,block=-1):
         pattern_str = self.patterns['DIPOLE']['pattern'].replace("'","")

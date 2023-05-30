@@ -1,3 +1,11 @@
+'''
+Author: Dong-Gi Kang
+Prepare ML-IP data using FHI-aims output
+Training data type: vibrational mode of a cluster
+'''
+
+
+
 import os
 import sys
 import numpy as np
@@ -7,28 +15,33 @@ class ML_train_generator(extractor):
     
     def __init__(self, app_version='22', tag=None):
         app_output = './aims.out'
-        self.path_fhiaims_species = '/home/uccatka/software/fhi-aims.221103/species_defaults/defaults_2020/light'
 
-        self.step_size = 0.05
         self.extractor = extractor()
         self.extractor.set_output_filepath(app_output)
-
+        
         self.species = self.extractor.get_species
         self.no_atoms = self.extractor.get_no_atoms
-        self.geometries = self.extractor.get_geometries[0]
-        self.order = self.extractor.get_geometries[1]        
+        self.geometries = self.extractor.get_geometries
+        self.order = self.extractor.get_atom_order
 
         self.forces = self.extractor.get_forces
-        self.vib_eigvecs = self.extractor.get_vib_eigvec
+        try:
+            self.vib_eigvecs = self.extractor.get_vib_eigvec
+        except:
+            pass
+
+            
 
         self.ucl_id = 'uccatka'
         self.job_time = '2:00:00'
-        self.job_name = None
+        self.job_name = 'test'
         self.memory = '2'
         self.cpu_core = '40'  # for Young 40 core = 1 node
         self.payment = 'Gold'
         self.budgets = 'UCL_chemM_Woodley'
         self.path_binary = '/home/uccatka/software/fhi-aims.221103/build/aims.221103.scalapack.mpi.x' 
+        self.path_fhiaims_species = '/home/uccatka/software/fhi-aims.221103/species_defaults/defaults_2020/light'
+        self.step_size = 0.05
 
         return None
 
@@ -46,15 +59,39 @@ class ML_train_generator(extractor):
 
 
     @property
-    def make_geometry(self):
+    def geometry_for_sp(self):
         ''' Convert the modified geometry (mod_xyz_w_vib) to {geometry.in} format for FHI-aims '''
         placer = np.full((self.no_atoms, 1), 'atom')
         placer_species = np.reshape(self.order, (-1, 1))
-        holder = np.empty((np.shape(self.mod_sp)[0], self.no_atoms, 5), dtype=object)
+        self.for_sp = np.empty((np.shape(self.mod_sp)[0], self.no_atoms, 5), dtype=object)
         for numi, i in enumerate(self.mod_sp):
             form = np.concatenate((placer, i, placer_species), axis=1)
-            holder[numi] = form
-        return holder 
+            self.for_sp[numi] = form
+        return self.for_sp 
+
+
+    @property
+    def xyz_from_opti(self):
+        ''' prepare training data from every SCF converged cycles of a optimisation '''
+        train_xyz = 'xyz_from_opti.xyz'
+        exist = [x for x in os.listdir('./') if train_xyz in x]
+        if len(exist) != 0:
+            os.remove(exist[0])
+        else: pass
+
+        for numi, i in enumerate(range(len(self.extractor.set_scf_blocks))):
+            #for numj, j in enumerate(i):
+            self.energy = self.extractor.get_total_energy(i) 
+            self.geometry = self.geometries(i)
+            self.force = self.forces(i)
+            xyz = np.round(np.concatenate((self.geometry, self.force), axis=1), 9)
+            xyz = np.concatenate((self.order, xyz), axis=1)
+           
+            with open('xyz_from_opti.xyz', 'a') as f:
+                f.write(f'{self.no_atoms}' + '\n')
+                f.write(f'{self.energy}' + '\n')
+                np.savetxt(f, xyz, fmt="%s")
+        print(f"total of {i+1} SCF converged structures are prepared in {train_xyz}") 
 
 
     def make_sp_control(self):
@@ -129,10 +166,10 @@ if __name__ == "__main__":
 
     app_output = './aims.out'
     ml = ML_train_generator()
-    ml.mod_xyz_w_vib
-    ml.make_geometry
+    #ml.mod_xyz_w_vib
+    #ml.geometry_for_sp
     ml.make_sp_control()
     ml.make_job_submit()
-
+    ml.xyz_from_opti
 
 
