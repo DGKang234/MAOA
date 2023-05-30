@@ -9,8 +9,8 @@ It has functions to take data from output file: </br>
 ✅ Forces </br>
 ✅ Energies </br>
 ✅ Eigenvector of vibrational mode </br>
-✅ Prepare training data for ML-IP using cartesian coordinate, force, and eigenvector of vibrational mode (FHI-aims)
-✅ Prepare training data for ML-IP from taking SCF converged cycles in optimisation process (FHI-aims)
+✅ Prepare training data for ML-IP using cartesian coordinate, force, and eigenvector of vibrational mode (FHI-aims) </br>
+✅ Prepare training data for ML-IP from taking SCF converged cycles in optimisation process (FHI-aims) </br>
 
 
 
