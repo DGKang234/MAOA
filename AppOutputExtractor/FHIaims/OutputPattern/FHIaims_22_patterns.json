@@ -1,0 +1,85 @@
+{
+    "//compatibility": { "FHIAIMS22": "comment" },
+
+    "SUCCESS": {
+        "pattern": "'Have a nice day.'"
+    },
+    "SCF_CONVERGED": {
+        "pattern": "'Self-consistency cycle converged.'",
+        "token": "None"
+    },
+    "BEGIN_SCF": {
+        "pattern": "'Begin self-consistency iteration #'",
+        "token": "None"
+    },
+
+    "NO_ATOMS": {
+        "pattern": "| Number of atoms",
+        "token": "6"
+    },
+
+    "SCF_ENERGY": {
+        "pattern": "'Total energy corrected        :'",
+        "token": "6"
+    },
+
+    "SCF_GEOMETRY_BEGIN": {
+        "pattern": "'Updated atomic structure:'",
+        "token": ""
+    },
+
+    "SP": {
+        "pattern": "'Geometry relaxation not requested: no relaxation will be performed.'",
+        "token": ""
+    },
+
+    "SCF_GEOMETRY_END": {
+        "pattern": "'Final atomic structure:'",
+        "token": ""
+    },
+
+    
+    "SP_GEOMETRY_END": {
+        "pattern": "| Atomic structure:''",
+        "token": ""
+    },
+
+    "SCF_FORCE": {
+        "pattern":"'Total atomic forces '",
+        "token": ""
+    },
+
+    "DIPOLE": {
+        "pattern": "'Absolute dipole moment'",
+        "token": "6"
+    },
+    "DIPOLE_MOMENT": {
+        "pattern": "'Total dipole moment'",
+        "token_x": "7", "token_y": "8", "token_z": "9"
+    },
+    "HOMO": {
+        "pattern": "'Highest occupied state'",
+        "token": "6"
+    },
+    "LUMO": {
+        "pattern": "'Lowest unoccupied state'",
+        "token": "6"
+    },
+    "HOMOLUMO": {
+        "pattern": "'Overall HOMO-LUMO gap'",
+        "token": "4"
+    },
+
+
+
+
+    "APP_RUNTIME": {
+        "pattern": "'| Total time                 '",
+        "ctime_token": "5",
+        "wtime_token": "7"
+    },
+    "APP_RESOURCE_USED": {
+        "pattern": "'parallel tasks.'",
+        "token": "2"
+    }
+}
