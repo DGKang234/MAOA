@@ -20,7 +20,7 @@ python MLTrainingDataGenerator.py -h
 
 2. python {code.py} --mode retrieve --eigenvector="7 8 9 10" would grab the generated data from the [1.] and make the ext xyz for each vibrational mode and store into the ext_xyz directory
 
-3. [python ../../tester.py --mode make_extxyz] would grab the all data from ext_xyz and make ext xyz format of Training_set.xyz in FIT directory 
+3. [python {code.py} --mode make_extxyz] would grab the all data from ext_xyz and make ext xyz format of Training_set.xyz in FIT directory 
 
 4. if you want to trianing MACE or GAP ML-IP use MACE_lib.py or second_GAP.py
 '''
@@ -215,18 +215,18 @@ class ML_train_generator(extractor):
                 ex.get_sp_species()
                 ex.get_forces
                 force_shape = np.shape(ex.get_forces)
-                get_forces = np.reshape(ex.get_forces, (force_shape[1], force_shape[2]))
+                get_forces = np.round(np.reshape(ex.get_forces, (force_shape[1], force_shape[2])), 8)
     
                 form = np.concatenate((ex.get_sp_atom_order(), ex.get_sp_geometries(j), get_forces), axis=1)
-    
+
                 total_energy.append(ex.get_total_energy())
                 geometry.append(form)
     
             for numk, k in enumerate(total_energy):
                 with open(f"ext_xyz/ext_{j.split('/')[1]}_eigv.xyz", 'a') as f:
                     f.write(str(force_shape[1]) + '\n')
-                    f.write(f'Properties-species:S:1:pos:R:3:forces:R:3 energy={total_energy[numk]} pbc="F F F"\n')
-                    np.savetxt(f, geometry[numk], fmt="%s", delimiter="    ")
+                    f.write(f'Lattice="0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0" Properties-species:S:1:pos:R:3:forces:R:3 energy={total_energy[numk]} pbc="F F F"\n')
+                    np.savetxt(f, geometry[numk], fmt="%s", delimiter="        ")
 
 
     def make_extxyz(self):
@@ -234,15 +234,23 @@ class ML_train_generator(extractor):
             os.mkdir('FIT')
         else: pass
 
+        #with open('FIT/Training_set.xyz', 'a') as outfile:
+        #    for numi, file in enumerate(os.listdir('ext_xyz')):
+        #        if file.endswith('.xyz'):
+        #            print(file)
+        #            with open(os.path.join('ext_xyz', file), 'r') as infile:
+        #                for line in infile:
+        #                    outfile.write(line)
+
+
         with open('FIT/Training_set.xyz', 'a') as outfile:
-            for numi, file in enumerate(os.listdir('ext_xyz')):
-                print(numi + 1)
-                if file.endswith('.xyz'):
-                    with open(os.path.join('ext_xyz', file), 'r') as infile:
-                        for line in infile:
-                            outfile.write(line)
-
-
+            filenames = [file for file in os.listdir('ext_xyz') if file.endswith('.xyz')]
+            sorted_filenames = sorted(filenames, key=lambda x: int(x.split('_')[1].split('.')[0]))
+            for file in sorted_filenames:
+                print(file)
+                with open(os.path.join('ext_xyz', file), 'r') as infile:
+                    for line in infile:
+                        outfile.write(line)
 
 
 

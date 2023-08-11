@@ -124,13 +124,10 @@ if __name__ == "__main__":
     vib = aimsvibcalc()
     os.mkdir('vibration')
     vib.vib_calc_prep
-    current_dir_name = os.getcwd()
-    current_dir_name = os.path.basename(current_dir_name)
+    current_dir_name = os.path.basename(os.getcwd())
     vib.make_job_submit(f'n{current_dir_name}')
     os.chdir('vibration')
     os.system('qsub submit.sh')
-
-
 
 
 
