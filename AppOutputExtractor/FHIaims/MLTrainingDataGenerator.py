@@ -1,3 +1,8 @@
+
+"""
+dev note:
+work on breathing method"""
+
 '''
 Author: Dong-Gi Kang
 Prepare ML-IP data using FHI-aims output
@@ -27,6 +32,7 @@ python MLTrainingDataGenerator.py -h
 
 import os
 import sys
+import random
 import numpy as np
 import argparse
 from itertools import groupby
@@ -35,21 +41,17 @@ from AppOutputExtractor.FHIaims.FHIaimsOutputExtractor import extractor
 class ML_train_generator(extractor):
     
     def __init__(self, app_version='22', tag=None):
-        app_output = './aims.out'
 
-        self.extractor = extractor()
-        self.extractor.set_output_filepath(app_output)
-        
-        self.species = self.extractor.get_species
-        self.no_atoms = self.extractor.get_no_atoms
-        self.geometries = self.extractor.get_geometries
-        self.order = self.extractor.get_atom_order
-        self.forces = self.extractor.get_forces
+        self.breathing_called = False
 
-        try:
-            self.vib_eigvecs = self.extractor.get_vib_eigvec
-        except:
-            pass
+        #self.extractor = extractor()
+        #self.extractor.set_output_filepath(app_output)
+        #self.no_atoms = self.extractor.get_no_atoms()
+        #self.geometries = self.extractor.get_geometries(self.no_atoms)
+        #self.order = self.extractor.get_atom_order(self.no_atoms)
+        #self.species = self.extractor.get_species(self.order)
+        #self.forces = self.extractor.get_forces(self.no_atoms)
+        #self.vib_eigvecs = self.extractor.get_vib_eigvec(self.no_atoms)
 
         self.ucl_id = 'uccatka'
         self.job_time = '2:00:00'
@@ -60,18 +62,29 @@ class ML_train_generator(extractor):
         self.budgets = 'UCL_chemM_Woodley'
         self.path_binary = '/home/uccatka/software/fhi-aims.221103/build/aims.221103.scalapack.mpi.x' 
         self.path_fhiaims_species = '/home/uccatka/software/fhi-aims.221103/species_defaults/defaults_2020/light'
-        self.step_size = 0.05
+        self.step_size = 0.1        ##### STEP SIZE #####
         return None
 
 
-    @property
+    def initiate(self):
+        app_output = './aims.out'
+        self.extractor = extractor()
+        self.extractor.set_output_filepath(app_output)
+        self.no_atoms = self.extractor.get_no_atoms()
+        self.geometries = self.extractor.get_geometries(self.no_atoms)
+        self.order = self.extractor.get_atom_order(self.no_atoms)
+        self.species = self.extractor.get_species(self.order)
+        self.forces = self.extractor.get_forces(self.no_atoms)
+        self.vib_eigvecs = self.extractor.get_vib_eigvec(self.no_atoms)
+
+
     def mod_xyz_w_vib(self):
-        ''' Modify LM geometry to array of vibrational mode frames '''
+        ''' Modify LM geometries to the frames of vibrational mode frames '''
         Lambda = len(np.arange(-1, 1+self.step_size, self.step_size)) * self.no_atoms*3
         self.mod_sp = np.zeros((Lambda, self.no_atoms, 3))
         cnt = 0
-        for i in range(self.no_atoms * 3):
-            for numj, j in enumerate(np.arange(-1, 1+self.step_size, self.step_size)):
+        for i in range(self.no_atoms * 3): # 3N dimension
+            for numj, j in enumerate(np.arange(-1, 1+self.step_size, self.step_size)):  # -1 to 1 in every step size
                 j = np.round(j, 2)
                 frame = self.geometries[-1] + self.vib_eigvecs[i] * j
                 self.mod_sp[cnt] = np.round(frame, 8)
@@ -80,19 +93,93 @@ class ML_train_generator(extractor):
         return self.mod_sp 
 
 
-    @property
-    def geometry_for_sp(self):
-        ''' Convert the modified geometry (mod_xyz_w_vib) to {geometry.in} format for FHI-aims '''
-        placer = np.full((self.no_atoms, 1), 'atom')
-        placer_species = np.reshape(self.order, (-1, 1))
-        shape = np.shape(self.mod_sp)
-        self.for_sp = np.empty((shape[0], shape[1], self.no_atoms, 5), dtype=object)
+    def mod_xyz_w_rand_pair_vib(self):
 
-        for i in range(shape[0]):
-            for j in range(shape[1]):
-                form = np.concatenate((placer, self.mod_sp[i][j], placer_species), axis=1)
-                self.for_sp[i][j] = form
-        return self.for_sp 
+        list_eigvecs = list(range(6, self.no_atoms*3))
+        random.shuffle(list_eigvecs)
+        pairs_eigvecs = [[list_eigvecs[i], list_eigvecs[i+1]] for i in range(0, len(list_eigvecs), 2)]
+
+        #Lambda = len(np.arange(-1, 1+self.step_size, self.step_size)) * (self.no_atoms*3-6)  # range of steps for all vib. mode, except E(3) 
+        #self.mod_sp_pair = np.zeros((Lambda, self.no_atoms, 3))
+
+        self.mod_sp_pair = np.zeros((len(pairs_eigvecs), len(np.arange(-1, 1+self.step_size, self.step_size)), self.no_atoms, 3))    # range of steps for all vib. mode, except E(3) 
+
+        cnt = 0
+        for numi, i in enumerate(pairs_eigvecs):
+            for numj, j in enumerate(np.arange(-1, 1+self.step_size, self.step_size)):
+                j = np.round(j, 2)
+                frame = self.geometries[-1] + (self.vib_eigvecs[i[0]]+self.vib_eigvecs[i[1]]) * j
+                #self.mod_sp_pair[cnt] = np.round(frame, 8)
+                self.mod_sp_pair[numi][numj] = np.round(frame, 8)
+                cnt += 1 
+
+        #print()
+        #print(self.mod_sp_pair)
+        #print(np.shape(self.mod_sp_pair))
+        #print(len(pairs_eigvecs))
+        self.mod_sp_pair = np.reshape(self.mod_sp_pair, (len(pairs_eigvecs), numj+1, self.no_atoms, 3))
+        return self.mod_sp_pair
+
+
+    def breathing(self):
+        scale = np.arange(0.6, 1+self.step_size, self.step_size)
+        Lambda = len(scale) #* self.no_atoms*3
+        self.mod_sp_breath = np.zeros((Lambda, self.no_atoms, 3))
+        # shift the centre of mass of the structure to (0, 0, 0)
+        coord = self.geometries[0]
+        com = coord.sum(axis=0)
+        com = com / int(self.no_atoms)
+        coord_x = np.subtract(coord[:, 0], com[0], out=coord[:, 0])
+        coord_y = np.subtract(coord[:, 1], com[1], out=coord[:, 1])
+        coord_z = np.subtract(coord[:, 2], com[2], out=coord[:, 2])
+        coord = list(zip(coord_x, coord_y, coord_z))
+        coord = np.array(coord)
+        cnt = 0
+ 
+        for numj, j in enumerate(scale):
+            j = np.round(j, 2)
+            frame = coord * j
+            self.mod_sp_breath[cnt] = np.round(frame, 8)
+            cnt += 1
+        
+        self.mod_sp_breath = np.reshape(self.mod_sp_breath, (len(scale), self.no_atoms, 3)) 
+        self.breathing_called = True
+        return self.mod_sp_breath, scale
+
+
+    #@property
+    def geometry_for_sp(self, mod_sp):
+        ''' Convert the modified geometry (mod_xyz_w_vib) to {geometry.in} format for FHI-aims '''
+        # vibrational modes
+        if not self.breathing_called:
+            print("@@@@@@@")
+            placer = np.full((self.no_atoms, 1), 'atom')
+            placer_species = np.reshape(self.order, (-1, 1))
+            shape = np.shape(mod_sp)
+            self.for_sp = np.empty((shape[0], shape[1], self.no_atoms, 5), dtype=object)
+            for i in range(shape[0]):
+                for j in range(shape[1]):
+                    form = np.concatenate((placer, mod_sp[i][j], placer_species), axis=1)
+                    self.for_sp[i][j] = form
+            return self.for_sp, self.no_atoms
+        # breathing mode
+        else: #self.breathing_called: 
+            print("*******")
+            placer_breath = np.full((self.no_atoms, 1), 'atom')
+            placer_species_breath = np.reshape(self.order, (-1, 1))
+            shape_breath = np.shape(mod_sp)
+            self.for_sp = np.empty((shape_breath[0], shape_breath[1], 5), dtype=object)
+            #print(shape_breath)
+            for i in range(shape_breath[0]):
+                #for j in range(shape_breath[1]):
+                #print(placer_breath)
+                #print()
+                #print(mod_sp[i])
+                #print()
+                #print(placer_species_breath)
+                form = np.concatenate((placer_breath, mod_sp[i], placer_species_breath), axis=1)
+                self.for_sp[i] = form 
+            return self.for_sp, self.no_atoms
 
 
     @property
@@ -112,7 +199,7 @@ class ML_train_generator(extractor):
            
             with open('xyz_from_opti.xyz', 'a') as f:
                 f.write(f'{self.no_atoms}\n')
-                f.write(f'Properties-species:S:1:pos:R:3:forces:R:3 energy={self.energy} pbc="F F F"\n')
+                f.write(f'Properties=species:S:1:pos:R:3:forces:R:3 energy={self.energy} pbc="F F F"\n')
                 np.savetxt(f, xyz, fmt="%s", delimiter="    ")
         print(f"total of {i+1} SCF converged structures are prepared in {train_xyz}") 
 
@@ -183,106 +270,173 @@ class ML_train_generator(extractor):
             f.write("module load mpi/intel/2018/update3/intel\n")
 
             f.write("\n")
-            f.write("#$ -m e\n")
-            f.write(f"#$ -M {self.ucl_id}@ucl.ac.uk\n")
+            f.write("####$ -m e\n")
+            f.write(f"####$ -M {self.ucl_id}@ucl.ac.uk\n")
             f.write("\n")
             f.write(f"gerun {self.path_binary} > aims.out\n")
 
 
+    @staticmethod
+    def sorting_key(path):
+        parts = path.split('/')
+        second_key = int(parts[1]) if parts[1] != "breathing" else float('inf')
+        third_key = float(parts[2].split('_')[1])  # Consider lambda value regardless of the second part
+        return second_key, third_key
+
     def retrieve_results(self, eigenvectors):
+        print("---retrieve---")
         eigvec_path = [os.path.join('sp', str(eigvec)) for eigvec in eigenvectors]
         sp_path = [os.path.join(dirpath, fname) for dirpath in eigvec_path for fname in os.listdir(dirpath)]
         lambda_path = [os.path.join(dirpath, fname) for dirpath in sp_path for fname in os.listdir(dirpath) if fname == 'aims.out']
-        aims_out_path = sorted(lambda_path, key=lambda x: (int(x.split('/')[1]), float(x.split('/')[2].split('_')[1])))
-        aims_out_path = [list(group) for key, group in groupby(aims_out_path, lambda x: int(x.split('/')[1]))]
-        ex = extractor()
+        #aims_out_path = sorted(lambda_path, key=lambda x: (int(x.split('/')[1]), float(x.split('/')[2].split('_')[1])))
+        aims_out_path = sorted(lambda_path, key=self.sorting_key)
+        aims_out_path = [list(group) for key, group in groupby(aims_out_path, lambda x: x.split('/')[1])]
+
+        #ex = extractor()
         if not os.path.exists('ext_xyz'):
             os.mkdir('ext_xyz')
-    
+        cnt = 0 
         for numi, i in enumerate(aims_out_path):
-            total_energy = []
-            geometry = []
+                #total_energy = []
+                #geometry = []
+                filename = f"ext_xyz/ext_{i[0].split('/')[1]}_eigv.xyz"       #
+                with open(filename, 'a') as f:                  #
+                    for j in i:
+                        ex = extractor() 
+                        ex.set_output_filepath(j)
+                        ex.set_scf_blocks
     
-            for j in i:
-                print(j)
-                ex.set_output_filepath(j)
-                ex.set_scf_blocks
-    
-                ex.get_no_atoms
-    
-                ex.get_sp_geometries(j)
-                ex.get_sp_atom_order()
-                ex.get_sp_species()
-                ex.get_forces
-                force_shape = np.shape(ex.get_forces)
-                get_forces = np.round(np.reshape(ex.get_forces, (force_shape[1], force_shape[2])), 8)
-    
-                form = np.concatenate((ex.get_sp_atom_order(), ex.get_sp_geometries(j), get_forces), axis=1)
+                        no_atoms = ex.get_no_atoms()
+                        geometries = ex.get_sp_geometries(j)
+                        forces = ex.get_sp_forces(no_atoms, j)
+                        #get_forces = np.round(np.reshape(forces, (force_shape[1], force_shape[2])), 8)
+                        get_forces = np.round(forces, 8) 
+                        form = np.concatenate((ex.get_sp_atom_order(), geometries, get_forces), axis=1)
 
-                total_energy.append(ex.get_total_energy())
-                geometry.append(form)
-    
-            for numk, k in enumerate(total_energy):
-                with open(f"ext_xyz/ext_{j.split('/')[1]}_eigv.xyz", 'a') as f:
-                    f.write(str(force_shape[1]) + '\n')
-                    f.write(f'Lattice="0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0" Properties-species:S:1:pos:R:3:forces:R:3 energy={total_energy[numk]} pbc="F F F"\n')
-                    np.savetxt(f, geometry[numk], fmt="%s", delimiter="        ")
+                        f.write(str(no_atoms) + '\n')
+                        f.write(f'Lattice="0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0" Properties=species:S:1:pos:R:3:forces:R:3 energy={ex.get_sp_total_energy(j)} pbc="F F F"\n')
+                        np.savetxt(f, form, fmt="%s", delimiter="        ")
 
 
     def make_extxyz(self):
         if not os.path.exists('FIT'):
             os.mkdir('FIT')
         else: pass
-
-        #with open('FIT/Training_set.xyz', 'a') as outfile:
-        #    for numi, file in enumerate(os.listdir('ext_xyz')):
-        #        if file.endswith('.xyz'):
-        #            print(file)
-        #            with open(os.path.join('ext_xyz', file), 'r') as infile:
-        #                for line in infile:
-        #                    outfile.write(line)
-
-
-        with open('FIT/Training_set.xyz', 'a') as outfile:
-            filenames = [file for file in os.listdir('ext_xyz') if file.endswith('.xyz')]
-            sorted_filenames = sorted(filenames, key=lambda x: int(x.split('_')[1].split('.')[0]))
-            for file in sorted_filenames:
-                print(file)
-                with open(os.path.join('ext_xyz', file), 'r') as infile:
-                    for line in infile:
-                        outfile.write(line)
+        if os.path.exists('./FIT/Training_set.xyz'):
+            os.remove('./FIT/Training_set.xyz')
+            print("You may want to check the .xyz files in the FIT")
+        else:
+            with open('FIT/Training_set.xyz', 'a') as outfile:
+                filenames = [file for file in os.listdir('ext_xyz') if file.endswith('.xyz')]
+                #sorted_filenames = sorted(filenames, key=lambda x: int(x.split('_')[1].split('.')[0]))
+                sorted_filenames = sorted(filenames, key=lambda x: int(x.split('_')[1]) if x.split('_')[1] != 'breathing' else float('inf'))
+                for file in sorted_filenames:
+                    print(file)
+                    with open(os.path.join('ext_xyz', file), 'r') as infile:
+                        for line in infile:
+                            outfile.write(line)
 
 
+    #def split_xyz_file(self, input_file, train_file, valid_file, test_file):
+    #    with open(input_file, 'r') as infile:
+    #        train_out = open(train_file, 'w')
+    #        valid_out = open(valid_file, 'w')
+    #        test_out = open(test_file, 'w')
+    #
+    #        while True:
+    #            header = infile.readline()
+    #            if not header:
+    #                break  
+    #
+    #            block_lines = [infile.readline() for _ in range(self.no_atoms + 1)]
+    #
+    #            # Determine which file to write to based on the current index
+    #            i = infile.tell()  
+    #            if i % 5 < 3:
+    #                output_file = train_out
+    #            elif i % 5 == 3:
+    #                output_file = valid_out
+    #            else:
+    #                output_file = test_out
+    #
+    #            output_file.write(header)
+    #            output_file.writelines(block_lines)
+    #
+    #        train_out.close()
+    #        valid_out.close()
+    #        test_out.close()
+    
 
+    def split_xyz_file(self, input_file, train_file, valid_file, test_file):
+        with open(input_file, 'r') as infile:
+            train_out = open(train_file, 'w')
+            valid_out = open(valid_file, 'w')
+            test_out = open(test_file, 'w')
+    
+            block_counter = 0
+            line = infile.readline()
+    
+            while line:
+                if line.strip().isdigit():  
+                    no_atoms = int(line.strip())
+                    block_lines = [line] + [infile.readline() for _ in range(no_atoms + 1)]  # Read the block
+                    
+                    if block_counter % 5 < 3:
+                        output_file = train_out
+                    elif block_counter % 5 == 3:
+                        output_file = valid_out
+                    else:
+                        output_file = test_out
+    
+                    output_file.writelines(block_lines)
+                    block_counter += 1
+                
+                line = infile.readline()
+    
+            train_out.close()
+            valid_out.close()
+            test_out.close()
+
+
+
+
+# executing the code using the class
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--eigenvector", type=str, help="A string of space-separated eigenvector indices. For example, '7 8 9 10'")
-    parser.add_argument("--mode", type=str, choices=["run", "retrieve", "make_extxyz"], default="run", help="Specify 'run' to execute the first part of the code, 'retrieve' to execute the second part of the code, or 'make_extxyz' to append all .xyz files into Training_set.xyz.")
-    args = parser.parse_args()
+    parser.add_argument("--eigenvector", type=str, help="A string of space-separated eigenvector indicies. For example, '7 8 9 10'")
+    parser.add_argument("--mode", type=str, choices=["run", "run_pair", "breath", "retrieve", "make_extxyz", "make_extxyz_"], default="run", help="Specify 'run' to execute the first part of the code, 'retrieve' to execute the second part of the code, or 'make_extxyz' to append all .xyz files into Training_set.xyz.")
     args = parser.parse_args()
 
     ml = ML_train_generator()
+    step_size = ml.step_size    ##### STEP SIZE #####
 
     if args.mode == "run":
+        ml.initiate()
         app_output = './aims.out'
-        step_size = 0.05
-        indices = list(map(int, args.eigenvector.split()))
+       
+        mod_sp = ml.mod_xyz_w_vib()                        # for each of vib. mode
+        sp_frame, no_atoms = ml.geometry_for_sp(mod_sp)
 
-        ml.mod_xyz_w_vib
-        sp_frame = ml.geometry_for_sp
         shape = np.shape(sp_frame)
+        if args.eigenvector == 'all':
+            indicies = list(range(7, no_atoms*3+1))
+            print("all eigenvectors without rotational and translational\n")
+        else:
+            indicies = list(map(int, args.eigenvector.split()))
+
         if not os.path.exists('sp'):
             os.mkdir('sp')
         else: pass
-    
-        for i in indices:  # Now we only iterate over the specified indices
-            if not os.path.exists(os.path.join('sp', str(i+1))):
+   
+        for i in indicies:  # Now we only iterate over the specified indicies
+            if not os.path.exists(os.path.join('sp', str(i))):
                 os.mkdir(f'sp/{str(i)}')
             else: pass
     
             for numj, j in enumerate(np.arange(-1, 1+step_size, step_size)):
                 j = str(np.round(j, 2))
                 os.mkdir(f'sp/{str(i)}/lambda_{j}')
+
                 with open(f'sp/{i}/lambda_{j}/geometry.in', 'w') as f:
                     for row in sp_frame[i-1][numj]:
                         line = ' '.join(str(x) for x in row)
@@ -290,14 +444,100 @@ if __name__ == "__main__":
                 ml.make_sp_control(f'sp/{i}/lambda_{j}')
                 ml.make_job_submit(f'sp/{i}/lambda_{j}')
                 os.chdir(f'sp/{i}/lambda_{j}')
-                os.system('qsub submit.sh')
+                os.system('qsub submit.sh')                     # submit jobs
                 os.chdir('../../../')
 
 
+    elif args.mode == "run_pair":
+        ml.initiate()
+        app_output = './aims.out'
+
+        mod_sp = ml.mod_xyz_w_rand_pair_vib()                 # randomly paired vib. mode
+        sp_frame, no_atoms = ml.geometry_for_sp(mod_sp)
+
+        shape = np.shape(sp_frame)
+        if args.eigenvector == 'all':
+            
+            indicies = list(range(15))
+            print("all paired eigenvectors without E(3), (rotational and translational)\n")
+        else:
+            indicies = list(map(int, args.eigenvector.split()))
+
+        if not os.path.exists('sp'):
+            os.mkdir('sp')
+        else: pass
+
+        for i in indicies:  # Now we only iterate over the specified indicies
+            i = i+1 
+            if not os.path.exists(os.path.join('sp', str(i))):
+                os.mkdir(f'sp/{str(i)}_pair')
+            else: pass
+
+            for numj, j in enumerate(np.arange(-1, 1+step_size, step_size)):
+                j = str(np.round(j, 2))
+                os.mkdir(f'sp/{str(i)}_pair/lambda_{j}')
+
+                with open(f'sp/{i}_pair/lambda_{j}/geometry.in', 'w') as f:
+                    for row in sp_frame[i-1][numj]:
+                        line = ' '.join(str(x) for x in row)
+                        f.write(line + '\n')
+                ml.make_sp_control(f'sp/{i}_pair/lambda_{j}')
+                ml.make_job_submit(f'sp/{i}_pair/lambda_{j}')
+                os.chdir(f'sp/{i}_pair/lambda_{j}')
+                os.system('qsub submit.sh')                     # submit jobs
+                os.chdir('../../../')
+
+
+
+    if args.mode == "breath":
+        ml.initiate()
+        if not os.path.exists('sp'):
+            os.mkdir('sp')
+        if not os.path.exists('sp/breathing'):
+            os.mkdir('sp/breathing')                           # for breathing mode
+      
+        mod_sp_breath, scale = ml.breathing()
+        #print(mod_sp_breath)
+        sp_frame, no_atoms = ml.geometry_for_sp(mod_sp_breath)
+
+        # breathing
+        for numk, k in enumerate(scale):
+            k = str(np.round(k, 2))
+            os.mkdir(f'sp/breathing/lambda_{k}')
+
+            with open(f'sp/breathing/lambda_{k}/geometry.in', 'w') as f:
+                for row in sp_frame[numk]: 
+                    line = ' '.join(str(x) for x in row)
+                    f.write(line + '\n')
+            ml.make_sp_control(f'sp/breathing/lambda_{k}')
+            ml.make_job_submit(f'sp/breathing/lambda_{k}')
+            os.chdir(f'sp/breathing/lambda_{k}')
+            os.system('qsub submit.sh')                     # submit job
+            os.chdir('../../../')
+
+
     elif args.mode == "retrieve":
-        eigenvectors = list(map(int, args.eigenvector.split()))
-        ml.retrieve_results(eigenvectors)
+        ml.initiate()
+        no_atoms = ml.no_atoms
+        if args.eigenvector == 'all':
+            indicies = list(range(7, no_atoms*3+1))
+            indicies.append('breathing')
+            print(indicies)
+            print("all eigenvectors without rotational and translational\n")
+        else:
+            indicies = list(args.eigenvector.split())
+            indicies = [int(x) if x.isdigit() else x for x in indicies]
+            print(indicies)
+        ml.retrieve_results(indicies)
+
 
     elif args.mode == "make_extxyz":
         ml.make_extxyz()
+        print("splitting training, test, validation data")
+        ml.split_xyz_file('./FIT/Training_set.xyz', './FIT/Training_set_test.xyz', './FIT/Validation_set_test.xyz', './FIT/Testing_set_test.xyz')
+
+    # dev
+    elif args.mode == "make_extxyz_":
+        ml.split_xyz_file('./FIT/Training_set.xyz', './FIT/Training_set_test.xyz', './FIT/Validation_set_test.xyz', './FIT/Testing_set_test.xyz')
+
 

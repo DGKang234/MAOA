@@ -16,11 +16,14 @@ class aimsvibcalc(BaseExtractor):
     def __init__(self, app_version='22', tag=None):
         '''
         '''
-        self.extractor = extractor()
         app_output = './aims.out'
+        self.extractor = extractor()
         self.extractor.set_output_filepath(app_output)
-        self.species = self.extractor.get_species
-        #print(self.species)
+        self.no_atoms = self.extractor.get_no_atoms()
+        self.geometries = self.extractor.get_geometries(self.no_atoms)
+        self.order = self.extractor.get_atom_order(self.no_atoms)
+        self.species = self.extractor.get_species(self.order)
+
 
         self.ucl_id = 'uccatka'
         self.job_time = '2:00:00'
@@ -76,9 +79,10 @@ class aimsvibcalc(BaseExtractor):
             f.write("module load gcc-libs/10.2.0\n")
             f.write("module load openblas/0.3.7-serial/gnu-4.9.2\n")
             f.write("module load compilers/intel/2019/update5\n")
-            f.write("module load mpi/intel/2018/update3/intel\n\n")
+            f.write("module load mpi/intel/2018/update3/intel\n")
+            f.write("module load cmake/3.21.1\n\n")            
             
-            f.write(f"gerun {self.vib_path_binary} {job_name}_{step_size} {step_size} > vibres.out\n")
+            f.write(f"{self.vib_path_binary} {job_name}_{step_size} {step_size} > vibres.out\n")
 
     @property
     def vib_calc_prep(self):
@@ -87,7 +91,7 @@ class aimsvibcalc(BaseExtractor):
         geo = 'geometry.in'
         vib_dir = 'vibration'
         geometry_files = [x for x in os.listdir('./') if '.in' in x]
-        if geo_next in geometry_files:
+        if os.path.exists(geo_next):
             shutil.copy(geo_next, f'{vib_dir}/{geo}')
             shutil.copy('hessian.aims', vib_dir)
         else:

@@ -32,8 +32,9 @@ class extractor(BaseExtractor):
 
         # shellcommand obj
         self.shell = shellcommand()
+        self.scf_converged_blocks = []
 
-    def set_output_filepath(self,path):
+    def set_output_filepath(self, path):
         if os.path.exists(path):
             self.output_filepath = path
         else:
@@ -135,7 +136,7 @@ class extractor(BaseExtractor):
         Loading SCF converged blocks ... possibly useful for further app output collation   
     '''
 
-    @property
+    #@property
     def set_scf_blocks(self) -> list:
         '''
             * special blocks:
@@ -169,20 +170,19 @@ class extractor(BaseExtractor):
 
         # SAVE THE BLOCKS ... 'self.scf_converged_blocks' -> python list
         for item in self.scf_converged_blocklines:
-            self.scf_converged_blocks.append(\
-            ParsingSupport.get_lines(self.output_filepath,item[0],item[1]))
+            self.scf_converged_blocks.append(ParsingSupport.get_lines(self.output_filepath,item[0],item[1]))
         return self.scf_converged_blocks
 
 
-    @property
-    def get_species(self):
+    #@property
+    def get_species(self, atom_order) -> list:
         #get_species =  [x for x in self.get_atom_order.tolist()]
-        get_species = list(set([item for sublist in self.get_atom_order for item in sublist]))
+        get_species = list(set([item for sublist in atom_order for item in sublist]))
         get_species = sorted(get_species)
         return get_species
 
 
-    @property
+    #@property
     def get_no_atoms(self) -> int:
         with open(self.output_filepath, 'r') as f:
             lines = f.readlines()
@@ -218,14 +218,16 @@ class extractor(BaseExtractor):
 
 
 
-    @property
-    def get_atom_order(self, block=-1) -> np.ndarray:
+    #@property
+    def get_atom_order(self, no_atoms, block=-1) -> np.ndarray:
+        self.set_scf_blocks()
+
         pattern_str = self.patterns['SCF_GEOMETRY_END']['pattern'].replace("'", "")
         pattern = re.compile(pattern_str)
 
         start_index = None
-        self.match_atom = np.empty((self.get_no_atoms), dtype=object)
-        for numj, j in enumerate(self.set_scf_blocks[block]):
+        self.match_atom = np.empty((no_atoms), dtype=object)
+        for numj, j in enumerate(self.scf_converged_blocks[block]):
             matching = pattern.search(j)
             if matching:
                 start_index = numj + 2
@@ -236,11 +238,14 @@ class extractor(BaseExtractor):
                     numbers = [x for x in k.split()]
                     self.match_atom[numk] = numbers[-1]
                 break
-        self.match_atom = np.reshape(self.match_atom, (self.get_no_atoms, 1))
+        self.match_atom = np.reshape(self.match_atom, (no_atoms, 1))
         return self.match_atom        
 
-    @property
-    def get_geometries(self, block=-1) -> np.ndarray:
+    #@property
+    def get_geometries(self, no_atoms, block=-1) -> np.ndarray:
+        #if not self.scf_converged_blocks:
+        self.set_scf_blocks()
+
         pattern_str = self.patterns['SCF_GEOMETRY_BEGIN']['pattern'].replace("'", "")
         pattern = re.compile(pattern_str)
 
@@ -249,13 +254,13 @@ class extractor(BaseExtractor):
             pattern = re.compile(pattern_str)
 
         start_index = None
-        self.geo = np.zeros((self.get_no_atoms, 3))
+        self.geo = np.zeros((no_atoms, 3))
         cnt = 0
         for numj, j in enumerate(self.scf_converged_blocks[block]):
             matching = pattern.search(j)
             if matching: 
                 start_index = numj + 2
-                end_index = numj + self.get_no_atoms + 2
+                end_index = numj + no_atoms + 2
                 atomic_structure = self.scf_converged_blocks[block][start_index: end_index]
                 for numk, k in enumerate(atomic_structure):
                     numbers = [x for x in k.split()]
@@ -266,7 +271,7 @@ class extractor(BaseExtractor):
         if cnt == 0:
             cnt = 1
         else: pass
-        self.geo = np.reshape(self.geo, (cnt, int(self.get_no_atoms), 3))
+        self.geo = np.reshape(self.geo, (cnt, int(no_atoms), 3))
         return self.geo
 
     def get_sp_geometries(self, path) -> np.ndarray:
@@ -281,19 +286,67 @@ class extractor(BaseExtractor):
         self.coordinate = lines[:, 1:-1].astype(float)
         return self.coordinate
 
+    def get_sp_forces(self, no_atoms, path) -> np.ndarray:
+        pattern_str = self.patterns['SCF_FORCE']['pattern'].replace("'","")
+        pattern = re.compile(pattern_str)
+        start_index = None
+        self.forces = np.zeros((no_atoms, 3))
+        cnt = 0
+        with open(path, 'r') as f:
+            lines = f.readlines()
+        
+        for numi, i in enumerate(lines):
+            matching = pattern.search(i) 
+            if matching:
+                start_index = numi + 1
+            elif start_index is not None and i.strip() == '':
+                end_index = numi
+                force = lines[start_index:end_index]
+                
+                for numj, j in enumerate(force):
+                    numbers = list(map(float, j.strip().split()[-3:]))
+
+                    self.forces[numj] = numbers
+                start_index = None
+                cnt += 1
+        self.forces = np.reshape(self.forces, (12, 3))
+        return self.forces
+
+    def get_sp_total_energy(self, path):
+        pattern_str = self.patterns['SCF_ENERGY']['pattern'].replace("'","")
+        token = int(self.patterns['SCF_ENERGY']['token']) - 1
+        pattern = re.compile(pattern_str)
+        with open(path, 'r') as f:
+            lines = f.readlines()
+        for i in lines: 
+            matching = pattern.search(i)
+            if matching:
+                target = float(i.split()[ token ])
+                break
+        return target
+
     def get_sp_atom_order(self):
         return self.atom_label
 
     def get_sp_species(self):
         return list(set(self.atom_label.flatten().tolist()))
 
-    @property
-    def get_forces(self, block=-1) -> np.ndarray:
+    #@property
+    def get_forces(self, no_atoms=12, block=-1) -> np.ndarray:
         pattern_str = self.patterns['SCF_FORCE']['pattern'].replace("'", "")
         pattern = re.compile(pattern_str)
         start_index = None
-        self.forces = np.zeros((self.get_no_atoms, 3))
+        self.forces = np.zeros((no_atoms, 3))
         cnt = 0
+        #print(self.scf_converged_blocks)
+        #print(len(self.scf_converged_blocks))
+        #print(block)
+        #for i in self.scf_converged_blocks[block]:
+        #    for j in i:
+        #        print(j, end='')
+        if not self.scf_converged_blocks:
+            raise ValueError("scf_converged_blocks is empty!")
+
         for numj, j in enumerate(self.scf_converged_blocks[block]):
             matching = pattern.search(j)
             if matching: 
@@ -301,6 +354,7 @@ class extractor(BaseExtractor):
             elif start_index is not None and j.strip() == '':
                 end_index = numj
                 force = self.scf_converged_blocks[block][start_index:end_index]
+
                 for numk, k in enumerate(force):
                     numbers = list(map(float, k.strip().split()[-3:]))
                     self.forces[numk] = numbers
@@ -311,8 +365,8 @@ class extractor(BaseExtractor):
         return self.forces 
 
 
-    @property
-    def get_vib_eigvec(self) -> np.ndarray:
+    #@property
+    def get_vib_eigvec(self, no_atoms) -> np.ndarray:
         '''
         Read whole file contents (not necessary to read in blocks as we need all eigenvector of vibrational mode
         '''
@@ -323,10 +377,11 @@ class extractor(BaseExtractor):
             check_vib = [x for x in os.listdir('./') if 'vibration' in x][0]
 
         vib_xyz = [os.path.join(check_vib, x) for x in os.listdir(check_vib) if '_' and '.xyz' in x][0]
+
         with open(vib_xyz, 'r') as f:
             lines = f.readlines()
     
-        self.eigvec = np.zeros((self.get_no_atoms*3, self.get_no_atoms, 3))
+        self.eigvec = np.zeros((no_atoms*3, no_atoms, 3))
         start_index = None
         block_counter = -1
         for numi, i in enumerate(lines):
