@@ -47,7 +47,8 @@ class MACE:
             "--config_type_weights", '{"Default":1.0}',
             "--model", "MACE",
             #"--E0s", "{9:0.000, 13:0.000}",                        # for the only IP data
-            "--E0s", "{9:-2586.551677536, 13:-6543.933824960}",     # for the PBEsol data
+            #"--E0s", "{9:-2707.428895973, 13:-6596.914328816}",     # for the PBEsol data
+            "--E0s", "{9:-2711.537676517, 13:-6543.933824960}",
             "--hidden_irreps", layers,
             "--r_max", str(self.args.radius),
             "--batch_size", str(self.args.batch_size),
@@ -104,7 +105,7 @@ class MACE:
         return energy, forces
 
 
-    def dimer_curve(self, model_path, device_type, atom1='Al', atom2='F', distance_range=(0.0, 5.0), num_points=21):
+    def dimer_curve(self, model_path, device_type, atom1='Al', atom2='F', distance_range=(0.0, 5.0), num_points=51):
         # List of distances to calculate energies for
         distances = np.linspace(*distance_range, num_points)
         energies_cat_an = []
@@ -366,8 +367,45 @@ class MACE:
             return -15.83 / x**6
 
 
-    def Coulomb(self, x, cat_q, an_q):
-        return 1 / (cat_q*an_q) * 14.3996439067522
+    def coulomb(self, r, cat_q, an_q):
+        return (cat_q * an_q) / r * 14.3996439067522
+
+    def coulomb_force(self, r, unit_r, cat_q, an_q):
+        return (cat_q * an_q) / r**2 * unit_r * 14.3996439067522
+
+    def coulomb_energy(self, structure):
+        coulomb_e = 0.0
+        forces = np.zeros_like(self.positions)
+        
+        for i in range(len(self.positions)):
+            for j in range(i+1, len(self.positions)):
+                coord1 = self.positions[i]
+                coord2 = self.positions[j]
+                atom1 = self.species[i]
+                atom2 = self.species[j]
+                
+                # Calculate the distance and unit vector between the two atoms
+                r_vec = coord2 - coord1
+                r = np.linalg.norm(r_vec)
+                unit_r = r_vec / r
+                
+                # Calculate the Coulomb potential energy between the pair
+                energy_pair = self.coulomb_energy(r, self.charges[atom1], self.charges[atom2])
+                
+                # Calculate the Coulomb force between the pair
+                force_pair = self.coulomb_force(r, unit_r, self.charges[atom1], self.charges[atom2])
+                
+                # Add to the total energy
+                coulomb_e += energy_pair
+                
+                # Add forces to atoms
+                forces[i] -= force_pair
+                forces[j] += force_pair
+                
+        return coulomb_e, forces
+
+
+
 
 
 if __name__ == '__main__':
