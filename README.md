@@ -1,6 +1,5 @@
 # MAOA
-#### Contributor for the generic data collection: Dr. Woongkyu Jee, 
-#### Contributor for the ML-IP workflow: Dong-Gi Kang (PhD candidate)
+#### Contributors: Dr. Woongkyu Jee (collect data from DFT optimisation output), Dong-Gi Kang, PhD candidate (the vibration, ML-IP workflow) </br>
 * * *
 #### This repository contains scripts that can take essential data from atomic simulation calculations  </br>
 ### Software that can work with: FHI-aims, GULP
