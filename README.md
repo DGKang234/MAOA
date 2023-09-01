@@ -13,13 +13,14 @@ It has functions to take data from output file: </br>
 ✅ Vibration calculation </br>
 ✅ Single point calculation of the frames of vibrational modes </br>
 ✅ Single point calculation of breathing mode frames </br>
-✅ Preparing extended xyz file format (total energy, geometry, atomic forces)
-✅ Train, Test, Valid split
-✅ MACE (ML-IP): training
-✅ MACE (ML-IP): optimisation/single point calculation using the trained model
-✅ MACE (ML-IP): vibration calculation using the trained model
-✅ MACE (ML-IP): nudge elastic band calculation using the trained model
-✅ MACE (ML-IP): Plot dimer interaction energy with the interatomic distances of trained data in .html format (plotly)
+✅ Preparing extended xyz file format (total energy, geometry, atomic forces) </br>
+✅ Train, Test, Valid split </br>
+✅ MACE (ML-IP): training </br>
+✅ MACE (ML-IP): optimisation/single point calculation using the trained model </br>
+✅ MACE (ML-IP): vibration calculation using the trained model </br>
+✅ MACE (ML-IP): nudge elastic band calculation using the trained model </br>
+✅ MACE (ML-IP): Plot dimer interaction energy with the interatomic distances of trained data in .html format (plotly) </br>
+</br>
 
 
 ☉ Upcoming function: </br>
