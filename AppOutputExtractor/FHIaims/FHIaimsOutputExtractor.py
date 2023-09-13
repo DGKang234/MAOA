@@ -284,7 +284,7 @@ class extractor(BaseExtractor):
         #atom_str = np.reshape(lines[:,0], (shape[0], -1))
         self.atom_label = np.reshape(lines[:,-1], (shape[0], -1))
         self.coordinate = lines[:, 1:-1].astype(float)
-        return self.coordinate
+        return self.coordinate, self.atom_label
 
     def get_sp_forces(self, no_atoms, path) -> np.ndarray:
         pattern_str = self.patterns['SCF_FORCE']['pattern'].replace("'","")
@@ -309,7 +309,7 @@ class extractor(BaseExtractor):
                     self.forces[numj] = numbers
                 start_index = None
                 cnt += 1
-        self.forces = np.reshape(self.forces, (12, 3))
+        self.forces = np.reshape(self.forces, (-1, 3))
         return self.forces
 
     def get_sp_total_energy(self, path):
@@ -361,7 +361,7 @@ class extractor(BaseExtractor):
                 start_index = None
                 cnt += 1
 
-        self.forces = np.reshape(self.forces, (cnt, 12, 3))
+        self.forces = np.reshape(self.forces, (cnt, -1, 3))
         return self.forces 
 
 

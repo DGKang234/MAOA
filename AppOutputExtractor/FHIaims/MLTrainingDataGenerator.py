@@ -49,7 +49,7 @@ class ML_train_generator(extractor):
         #self.no_atoms = self.extractor.get_no_atoms()
         #self.geometries = self.extractor.get_geometries(self.no_atoms)
         #self.order = self.extractor.get_atom_order(self.no_atoms)
-        #self.species = self.extractor.get_species(self.order)
+        #ID = self.extractor.get_species(self.order)
         #self.forces = self.extractor.get_forces(self.no_atoms)
         #self.vib_eigvecs = self.extractor.get_vib_eigvec(self.no_atoms)
 
@@ -73,7 +73,7 @@ class ML_train_generator(extractor):
         self.no_atoms = self.extractor.get_no_atoms()
         self.geometries = self.extractor.get_geometries(self.no_atoms)
         self.order = self.extractor.get_atom_order(self.no_atoms)
-        self.species = self.extractor.get_species(self.order)
+        self.ID = self.extractor.get_species(self.order)
         self.forces = self.extractor.get_forces(self.no_atoms)
         self.vib_eigvecs = self.extractor.get_vib_eigvec(self.no_atoms)
 
@@ -97,28 +97,25 @@ class ML_train_generator(extractor):
 
         list_eigvecs = list(range(6, self.no_atoms*3))
         random.shuffle(list_eigvecs)
-        pairs_eigvecs = [[list_eigvecs[i], list_eigvecs[i+1]] for i in range(0, len(list_eigvecs), 2)]
+        self.pairs_eigvecs = [[list_eigvecs[i], list_eigvecs[i+1]] for i in range(0, len(list_eigvecs), 2)]
+        fname_pairs = [f"{x}-{y}" for x, y in self.pairs_eigvecs]
 
         #Lambda = len(np.arange(-1, 1+self.step_size, self.step_size)) * (self.no_atoms*3-6)  # range of steps for all vib. mode, except E(3) 
         #self.mod_sp_pair = np.zeros((Lambda, self.no_atoms, 3))
 
-        self.mod_sp_pair = np.zeros((len(pairs_eigvecs), len(np.arange(-1, 1+self.step_size, self.step_size)), self.no_atoms, 3))    # range of steps for all vib. mode, except E(3) 
+        self.mod_sp_pair = np.zeros((len(self.pairs_eigvecs), len(np.arange(-1, 1+self.step_size, self.step_size)), self.no_atoms, 3))    # range of steps for all vib. mode, except E(3) 
 
         cnt = 0
-        for numi, i in enumerate(pairs_eigvecs):
+        for numi, i in enumerate(self.pairs_eigvecs):
             for numj, j in enumerate(np.arange(-1, 1+self.step_size, self.step_size)):
                 j = np.round(j, 2)
                 frame = self.geometries[-1] + (self.vib_eigvecs[i[0]]+self.vib_eigvecs[i[1]]) * j
                 #self.mod_sp_pair[cnt] = np.round(frame, 8)
                 self.mod_sp_pair[numi][numj] = np.round(frame, 8)
                 cnt += 1 
-
-        #print()
-        #print(self.mod_sp_pair)
-        #print(np.shape(self.mod_sp_pair))
-        #print(len(pairs_eigvecs))
-        self.mod_sp_pair = np.reshape(self.mod_sp_pair, (len(pairs_eigvecs), numj+1, self.no_atoms, 3))
-        return self.mod_sp_pair
+        
+        self.mod_sp_pair = np.reshape(self.mod_sp_pair, (len(self.pairs_eigvecs), numj+1, self.no_atoms, 3))
+        return self.mod_sp_pair, fname_pairs 
 
 
     def breathing(self):
@@ -162,21 +159,15 @@ class ML_train_generator(extractor):
                     form = np.concatenate((placer, mod_sp[i][j], placer_species), axis=1)
                     self.for_sp[i][j] = form
             return self.for_sp, self.no_atoms
+
         # breathing mode
-        else: #self.breathing_called: 
+        else:
             print("*******")
             placer_breath = np.full((self.no_atoms, 1), 'atom')
             placer_species_breath = np.reshape(self.order, (-1, 1))
             shape_breath = np.shape(mod_sp)
             self.for_sp = np.empty((shape_breath[0], shape_breath[1], 5), dtype=object)
-            #print(shape_breath)
             for i in range(shape_breath[0]):
-                #for j in range(shape_breath[1]):
-                #print(placer_breath)
-                #print()
-                #print(mod_sp[i])
-                #print()
-                #print(placer_species_breath)
                 form = np.concatenate((placer_breath, mod_sp[i], placer_species_breath), axis=1)
                 self.for_sp[i] = form 
             return self.for_sp, self.no_atoms
@@ -208,7 +199,7 @@ class ML_train_generator(extractor):
         ''' Write {control.in} file '''
         basis_set_files = [os.path.join(self.path_fhiaims_species, x) for x in os.listdir(self.path_fhiaims_species)]
         basis_set_all = [x.split('_')[1] for x in os.listdir(self.path_fhiaims_species)]
-        basis_set_index = [basis_set_all.index(x) for x in basis_set_all if x in self.species] 
+        basis_set_index = [basis_set_all.index(x) for x in basis_set_all if x in self.ID] 
         
         path = os.path.join(path, 'control.in')
         with open(path, 'a') as f:
@@ -283,39 +274,78 @@ class ML_train_generator(extractor):
         third_key = float(parts[2].split('_')[1])  # Consider lambda value regardless of the second part
         return second_key, third_key
 
-    def retrieve_results(self, eigenvectors):
+    def retrieve_results_c(self, eigenvectors):
         print("---retrieve---")
         eigvec_path = [os.path.join('sp', str(eigvec)) for eigvec in eigenvectors]
         sp_path = [os.path.join(dirpath, fname) for dirpath in eigvec_path for fname in os.listdir(dirpath)]
         lambda_path = [os.path.join(dirpath, fname) for dirpath in sp_path for fname in os.listdir(dirpath) if fname == 'aims.out']
-        #aims_out_path = sorted(lambda_path, key=lambda x: (int(x.split('/')[1]), float(x.split('/')[2].split('_')[1])))
         aims_out_path = sorted(lambda_path, key=self.sorting_key)
         aims_out_path = [list(group) for key, group in groupby(aims_out_path, lambda x: x.split('/')[1])]
 
-        #ex = extractor()
         if not os.path.exists('ext_xyz'):
             os.mkdir('ext_xyz')
         cnt = 0 
         for numi, i in enumerate(aims_out_path):
-                #total_energy = []
-                #geometry = []
                 filename = f"ext_xyz/ext_{i[0].split('/')[1]}_eigv.xyz"       #
                 with open(filename, 'a') as f:                  #
                     for j in i:
                         ex = extractor() 
                         ex.set_output_filepath(j)
-                        ex.set_scf_blocks
+                        #ex.set_scf_blocks
     
                         no_atoms = ex.get_no_atoms()
-                        geometries = ex.get_sp_geometries(j)
+                        geometries, atom_label = ex.get_sp_geometries(j)
                         forces = ex.get_sp_forces(no_atoms, j)
-                        #get_forces = np.round(np.reshape(forces, (force_shape[1], force_shape[2])), 8)
-                        get_forces = np.round(forces, 8) 
-                        form = np.concatenate((ex.get_sp_atom_order(), geometries, get_forces), axis=1)
+                        total_energy = ex.get_sp_total_energy(j)
+
+                        coulomb_E, coulomb_F = self.coulomb_E_F(atom_label, geometries)
+
+                        # subtract coulomb energy and force
+                        energy = total_energy - coulomb_E
+                        forces = forces - coulomb_F                        
+                        form = np.concatenate((ex.get_sp_atom_order(), geometries, forces), axis=1)
 
                         f.write(str(no_atoms) + '\n')
-                        f.write(f'Lattice="0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0" Properties=species:S:1:pos:R:3:forces:R:3 energy={ex.get_sp_total_energy(j)} pbc="F F F"\n')
+                        f.write(f'Lattice="0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0" Properties=species:S:1:pos:R:3:forces:R:3 energy={energy} pbc="F F F"\n')
                         np.savetxt(f, form, fmt="%s", delimiter="        ")
+
+
+    def retrieve_results(self, eigenvectors):
+        print("---retrieve---")
+        eigvec_path = [os.path.join('sp', str(eigvec)) for eigvec in eigenvectors]
+        sp_path = [os.path.join(dirpath, fname) for dirpath in eigvec_path for fname in os.listdir(dirpath)]
+        lambda_path = [os.path.join(dirpath, fname) for dirpath in sp_path for fname in os.listdir(dirpath) if fname == 'aims.out']
+        aims_out_path = sorted(lambda_path, key=self.sorting_key)
+        aims_out_path = [list(group) for key, group in groupby(aims_out_path, lambda x: x.split('/')[1])]
+
+        if not os.path.exists('ext_xyz'):
+            os.mkdir('ext_xyz')
+        cnt = 0
+        for numi, i in enumerate(aims_out_path):
+                filename = f"ext_xyz/ext_{i[0].split('/')[1]}_eigv.xyz"       #
+                with open(filename, 'a') as f:                  #
+                    for j in i:
+                        ex = extractor()
+                        ex.set_output_filepath(j)
+                        #ex.set_scf_blocks
+
+
+                        no_atoms = ex.get_no_atoms()
+                        geometries, atom_label = ex.get_sp_geometries(j)
+                        forces = ex.get_sp_forces(no_atoms, j)
+                        total_energy = ex.get_sp_total_energy(j)
+
+                        ## subtract coulomb energy and force
+                        print("Coulomb interactions are eliminated")
+                        coulomb_E, coulomb_F = self.coulomb_E_F(atom_label, geometries)
+                        total_energy = total_energy - coulomb_E
+                        forces = forces - coulomb_F
+                        form = np.concatenate((ex.get_sp_atom_order(), geometries, forces), axis=1)
+
+                        f.write(str(no_atoms) + '\n')
+                        f.write(f'Lattice="0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0 0.0" Properties=species:S:1:pos:R:3:forces:R:3 energy={total_energy} pbc="F F F"\n')
+                        np.savetxt(f, form, fmt="%s", delimiter="        ")
+
 
 
     def make_extxyz(self):
@@ -328,7 +358,6 @@ class ML_train_generator(extractor):
         else:
             with open('FIT/Training_set.xyz', 'a') as outfile:
                 filenames = [file for file in os.listdir('ext_xyz') if file.endswith('.xyz')]
-                #sorted_filenames = sorted(filenames, key=lambda x: int(x.split('_')[1].split('.')[0]))
                 sorted_filenames = sorted(filenames, key=lambda x: int(x.split('_')[1]) if x.split('_')[1] != 'breathing' else float('inf'))
                 for file in sorted_filenames:
                     print(file)
@@ -336,36 +365,6 @@ class ML_train_generator(extractor):
                         for line in infile:
                             outfile.write(line)
 
-
-    #def split_xyz_file(self, input_file, train_file, valid_file, test_file):
-    #    with open(input_file, 'r') as infile:
-    #        train_out = open(train_file, 'w')
-    #        valid_out = open(valid_file, 'w')
-    #        test_out = open(test_file, 'w')
-    #
-    #        while True:
-    #            header = infile.readline()
-    #            if not header:
-    #                break  
-    #
-    #            block_lines = [infile.readline() for _ in range(self.no_atoms + 1)]
-    #
-    #            # Determine which file to write to based on the current index
-    #            i = infile.tell()  
-    #            if i % 5 < 3:
-    #                output_file = train_out
-    #            elif i % 5 == 3:
-    #                output_file = valid_out
-    #            else:
-    #                output_file = test_out
-    #
-    #            output_file.write(header)
-    #            output_file.writelines(block_lines)
-    #
-    #        train_out.close()
-    #        valid_out.close()
-    #        test_out.close()
-    
 
     def split_xyz_file(self, input_file, train_file, valid_file, test_file):
         with open(input_file, 'r') as infile:
@@ -398,18 +397,60 @@ class ML_train_generator(extractor):
             test_out.close()
 
 
+    def coulomb_energy(self, r, cat_q, an_q):
+        return (cat_q * an_q) / r * 14.3996439067522
+
+    def coulomb_force(self, r, unit_r, cat_q, an_q):
+        return (cat_q * an_q) / r**2 * unit_r * 14.3996439067522
+
+    def coulomb_E_F(self, atom_label, structure):
+        self.charges = {"Al": 3, "F": -1}
+        coulomb_e = 0.0
+        forces = np.zeros_like(structure)
+
+        for i in range(len(structure)):
+            for j in range(i+1, len(structure)):
+                coord1 = structure[i]
+                coord2 = structure[j]
+                atom1 = atom_label[i][0]
+                atom2 = atom_label[j][0]
+
+                r_vec = coord2 - coord1
+                r = np.linalg.norm(r_vec)
+                unit_r = r_vec / r              # unit vec
+
+                # energy 
+                energy_pair = self.coulomb_energy(r, self.charges[atom1], self.charges[atom2])
+                coulomb_e += energy_pair
+
+                # force 
+                force_pair = self.coulomb_force(r, unit_r, self.charges[atom1], self.charges[atom2])
+
+                # add forces to atoms
+                forces[i] -= force_pair
+                forces[j] += force_pair
+
+        return coulomb_e, forces
+
+
+
+
 
 
 # executing the code using the class
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--eigenvector", type=str, help="A string of space-separated eigenvector indicies. For example, '7 8 9 10'")
-    parser.add_argument("--mode", type=str, choices=["run", "run_pair", "breath", "retrieve", "make_extxyz", "make_extxyz_"], default="run", help="Specify 'run' to execute the first part of the code, 'retrieve' to execute the second part of the code, or 'make_extxyz' to append all .xyz files into Training_set.xyz.")
+    parser.add_argument("--mode", type=str, choices=["run", "run_pair", "breath", "retrieve", "retrieve_c", "make_extxyz", "make_extxyz_"], default="run", help="Specify 'run' to execute the first part of the code, 'retrieve' to execute the second part of the code, or 'make_extxyz' to append all .xyz files into Training_set.xyz.")
     args = parser.parse_args()
 
     ml = ML_train_generator()
     step_size = ml.step_size    ##### STEP SIZE #####
 
+
+    #
+    # run
+    #
     if args.mode == "run":
         ml.initiate()
         app_output = './aims.out'
@@ -447,48 +488,49 @@ if __name__ == "__main__":
                 os.system('qsub submit.sh')                     # submit jobs
                 os.chdir('../../../')
 
-
+    #
+    # randomly pair up eigenvectors
+    #
     elif args.mode == "run_pair":
         ml.initiate()
         app_output = './aims.out'
-
-        mod_sp = ml.mod_xyz_w_rand_pair_vib()                 # randomly paired vib. mode
+        mod_sp, fname_pairs = ml.mod_xyz_w_rand_pair_vib()                 # randomly paired vib. mode
         sp_frame, no_atoms = ml.geometry_for_sp(mod_sp)
-
         shape = np.shape(sp_frame)
+
         if args.eigenvector == 'all':
-            
-            indicies = list(range(15))
+            #indicies = list(range(15))
+            indicies = list(range(3*no_atoms))[6:]
             print("all paired eigenvectors without E(3), (rotational and translational)\n")
         else:
             indicies = list(map(int, args.eigenvector.split()))
-
+        
         if not os.path.exists('sp'):
             os.mkdir('sp')
         else: pass
 
-        for i in indicies:  # Now we only iterate over the specified indicies
-            i = i+1 
-            if not os.path.exists(os.path.join('sp', str(i))):
-                os.mkdir(f'sp/{str(i)}_pair')
+        for i in range(int(len(indicies)/2)):  # Now we only iterate over the specified indicies
+            #i = i+1 
+            if not os.path.exists(os.path.join('sp', fname_pairs[i])):
+                os.mkdir(f'sp/{fname_pairs[i]}_pair')
             else: pass
 
             for numj, j in enumerate(np.arange(-1, 1+step_size, step_size)):
                 j = str(np.round(j, 2))
-                os.mkdir(f'sp/{str(i)}_pair/lambda_{j}')
-
-                with open(f'sp/{i}_pair/lambda_{j}/geometry.in', 'w') as f:
-                    for row in sp_frame[i-1][numj]:
+                os.mkdir(f'sp/{fname_pairs[i]}_pair/lambda_{j}')
+                with open(f'sp/{fname_pairs[i]}_pair/lambda_{j}/geometry.in', 'w') as f:
+                    for row in sp_frame[i][numj]:
                         line = ' '.join(str(x) for x in row)
                         f.write(line + '\n')
-                ml.make_sp_control(f'sp/{i}_pair/lambda_{j}')
-                ml.make_job_submit(f'sp/{i}_pair/lambda_{j}')
-                os.chdir(f'sp/{i}_pair/lambda_{j}')
+                ml.make_sp_control(f'sp/{fname_pairs[i]}_pair/lambda_{j}')
+                ml.make_job_submit(f'sp/{fname_pairs[i]}_pair/lambda_{j}')
+                os.chdir(f'sp/{fname_pairs[i]}_pair/lambda_{j}')
                 os.system('qsub submit.sh')                     # submit jobs
                 os.chdir('../../../')
 
-
-
+    #
+    # preparen and run breathing mode single point calc
+    #
     if args.mode == "breath":
         ml.initiate()
         if not os.path.exists('sp'):
@@ -515,7 +557,9 @@ if __name__ == "__main__":
             os.system('qsub submit.sh')                     # submit job
             os.chdir('../../../')
 
-
+    #
+    # Collect data from single point calculated data
+    #
     elif args.mode == "retrieve":
         ml.initiate()
         no_atoms = ml.no_atoms
@@ -529,8 +573,25 @@ if __name__ == "__main__":
             indicies = [int(x) if x.isdigit() else x for x in indicies]
             print(indicies)
         ml.retrieve_results(indicies)
+   
+    # collect coulomb subtracted data 
+    elif args.mode == "retrieve_c":
+        ml.initiate()
+        no_atoms = ml.no_atoms
+        if args.eigenvector == 'all':
+            indicies = list(range(7, no_atoms*3+1))
+            indicies.append('breathing')
+            print(indicies)
+            print("all eigenvectors without rotational and translational\n")
+        else:
+            indicies = list(args.eigenvector.split())
+            indicies = [int(x) if x.isdigit() else x for x in indicies]
+            print(indicies)
+        ml.retrieve_results_c(indicies)
 
-
+    # 
+    # make training data and split to train, test, valid data 
+    #
     elif args.mode == "make_extxyz":
         ml.make_extxyz()
         print("splitting training, test, validation data")
@@ -538,6 +599,6 @@ if __name__ == "__main__":
 
     # dev
     elif args.mode == "make_extxyz_":
-        ml.split_xyz_file('./FIT/Training_set.xyz', './FIT/Training_set_test.xyz', './FIT/Validation_set_test.xyz', './FIT/Testing_set_test.xyz')
+        ml.split_xyz_file('./Training_set.xyz', './Training_set_test.xyz', './Validation_set_test.xyz', './Testing_set_test.xyz')
 
 
